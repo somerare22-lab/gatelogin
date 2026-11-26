@@ -4,6 +4,7 @@ import secrets
 import sqlite3
 import string
 import uuid
+from contextlib import contextmanager
 
 from flask import Flask, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -21,8 +22,18 @@ def connect_db():
     return connection
 
 
+@contextmanager
+def database():
+    connection = connect_db()
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
 def init_db():
-    with connect_db() as db:
+    with database() as db:
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -87,7 +98,7 @@ def register():
     password_hash = generate_password_hash(password)
 
     try:
-        with connect_db() as db:
+        with database() as db:
             db.execute(
                 "INSERT INTO users (uuid, username, password_hash) VALUES (?, ?, ?)",
                 (user_uuid, username, password_hash)
@@ -104,7 +115,7 @@ def login():
     if not username or not password:
         return jsonify(error="username and password are required"), 400
 
-    with connect_db() as db:
+    with database() as db:
         user = db.execute(
             "SELECT uuid, password_hash FROM users WHERE username = ?",
             (username,)
@@ -128,7 +139,7 @@ def verify():
     if not token or len(token) != TOKEN_LENGTH or not token.isascii() or not token.isalnum():
         return jsonify(valid=False), 401
 
-    with connect_db() as db:
+    with database() as db:
         user = db.execute(
             "SELECT uuid, username FROM users WHERE token_hash = ?",
             (hash_token(token),)
@@ -146,7 +157,7 @@ def logout():
     if not token:
         return jsonify(error="token is required"), 400
 
-    with connect_db() as db:
+    with database() as db:
         cursor = db.execute(
             "UPDATE users SET token_hash = NULL WHERE token_hash = ?",
             (hash_token(token),)
